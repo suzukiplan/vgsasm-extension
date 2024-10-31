@@ -3,6 +3,14 @@ const VGSASM_MODE = { scheme: 'file', language: 'vgsasm' };
 
 function getStructMemberList(name, document) {
     return new Promise((resolve) => {
+        const arrayBegin = name.indexOf('[');
+        const arrayEnd = name.indexOf(']');
+        if (-1 != arrayBegin && -1 != arrayEnd && arrayBegin < arrayEnd) {
+            const l = name.substr(0, arrayBegin);
+            const r = name.substr(arrayEnd + 1);
+            name = l + r;
+        }
+        console.log(name);
         if (!name.endsWith('.')) {
             resolve();
             return;
