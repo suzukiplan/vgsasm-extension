@@ -1,6 +1,6 @@
 # VisualStudio Code - Extension for vgsasm
 
-An extension to `vgsasm` available in VSCode.
+An extension to [Z80 Assembler for VGS-Zero](https://github.com/suzukiplan/vgsasm) available in VSCode.
 
 ![preview](./preview.png)
 
@@ -20,9 +20,9 @@ We plan to release a stable version (version 1.0.0) of this package at the same 
 ## How to Debug
 
 ```bash
-git clone https://github.com/suzukiplan/vgsasm
-cd vgsasm
-code ./extension
+git clone https://github.com/suzukiplan/vgsasm-extension
+cd vgsasm-extension
+code ./
 ```
 
 After executing the above command, press the `F5` key to start the VSCode extension `vgsasm` with it enabled, and you can debug by opening the appropriate `.asm` file.
