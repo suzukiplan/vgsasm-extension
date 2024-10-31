@@ -27,3 +27,6 @@ code ./
 
 After executing the above command, press the `F5` key to start the VSCode extension `vgsasm` with it enabled, and you can debug by opening the appropriate `.asm` file.
 
+## License
+
+[GPLv3](./LICENSE.txt)
