@@ -17,6 +17,10 @@ We plan to release a stable version (version 1.0.0) of this package at the same 
 - [x] Contain `#include` files for the suggestions
 - [ ] Support code formatter
 
+## How to Install
+
+Search for `vgsasm` in the Visual Studio Code marketplace and install it.
+
 ## How to Debug
 
 ```bash
