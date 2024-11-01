@@ -2,20 +2,41 @@
 
 An extension to [Z80 Assembler for VGS-Zero](https://github.com/suzukiplan/vgsasm) available in VSCode.
 
-![preview](./preview.png)
-
 ## WIP status
 
 This package is a **Beta Version**.
 
 We plan to release a stable version (version 1.0.0) of this package at the same time as version 1.0.0 of the assembler itself (vgsasm).
 
-- [x] Text Highlight
-- [x] Suggestion for `struct`
-- [x] Suggestion for `enum`
-- [x] Suggestion for `#macro`
-- [x] Contain `#include` files for the suggestions
-- [ ] Support code formatter
+## Features
+
+### Text Highlight
+
+![preview_highlight](./preview_highlight.png)
+
+Color-code preprocessors, reserved words, numeric literals, string literals, labels, etc.
+
+### Suggestion for `struct`
+
+![preview_struct](./preview_struct.png)
+
+Suggests a list of member variables when `name.` of `struct` is entered.
+
+### Suggestion for `enum`
+
+![preview_enum](./preview_enum.png)
+
+Suggests a list of member variables when `name.` of `enum` is entered.
+
+### Suggestion for `#macro`
+
+![preview_macro](./preview_macro.png)
+
+Guides the macro call process with argument information as it is entered.
+
+### Definition Jump
+
+To jump to a symbol whose definition you want to check, place the cursor on the symbol and click on it while holding down the ⌘ button (or F12 key).
 
 ## How to Install
 
