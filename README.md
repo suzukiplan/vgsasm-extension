@@ -2,12 +2,6 @@
 
 An extension to [Z80 Assembler for VGS-Zero](https://github.com/suzukiplan/vgsasm) available in VSCode.
 
-## WIP status
-
-This package is a **Beta Version**.
-
-We plan to release a stable version (version 1.0.0) of this package at the same time as version 1.0.0 of the assembler itself (vgsasm).
-
 ## Features
 
 ### Text Highlight
