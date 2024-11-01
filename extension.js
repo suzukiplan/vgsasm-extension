@@ -141,21 +141,45 @@ function getStructMemberLocation(name, document) {
                 if (loc) {
                     resolve(loc);
                 } else {
-                    getEnumMemberLocation(name, field, document, resolve, reject);
+                    getEnumMemberLocation(name, field, document, (loc) => {
+                        if (loc) {
+                            resolve(loc);
+                        } else {
+                            getMacroLocation(name, document, (loc) => {
+                                if (loc) {
+                                    resolve(loc);
+                                } else {
+                                    reject();
+                                }
+                            });
+                        }
+                    });
                 }
             });
         }
     });
 }
 
-function getEnumMemberLocation(name, field, document, resolve, reject) {
+function getEnumMemberLocation(name, field, document, resolve) {
     const regex = new RegExp('enum\\s+' + name, 'i');
     let source = document.getText();
     getMemberLocationR({ type: "enum", regex: regex, name: name, field: field }, source, document, [], (loc) => {
         if (loc) {
             resolve(loc);
         } else {
-            reject('No word definition.');
+            resolve();;
+        }
+    });
+}
+
+function getMacroLocation(name, document, resolve) {
+    const regex = new RegExp('macro\\s+' + name, 'i');
+    let source = document.getText();
+    getMemberLocationR({ type: "macro", regex: regex, name: name, field: undefined }, source, document, [], (loc) => {
+        if (loc) {
+            resolve(loc);
+        } else {
+            resolve();;
         }
     });
 }
