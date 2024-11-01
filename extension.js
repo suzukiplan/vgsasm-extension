@@ -10,7 +10,6 @@ function getStructMemberList(name, document) {
             const r = name.substr(arrayEnd + 1);
             name = l + r;
         }
-        console.log(name);
         if (!name.endsWith('.')) {
             resolve();
             return;
@@ -240,9 +239,100 @@ class VGSDefinitionProvider {
     }
 }
 
+function getMacroR(config, source, document, documentList, resolve, reject) {
+    for (var i = 0; i < documentList.length; i++) {
+        if (documentList[i] == document.uri.path) {
+            reject();
+            return;
+        }
+    }
+    documentList.push(document.uri.path);
+    const macroPosition = source.search(config.regex);
+    if (-1 == macroPosition) {
+        const uriEndPos = document.uri.path.lastIndexOf('/');
+        if (-1 == uriEndPos) {
+            reject();
+            return;
+        }
+        const basePath = document.uri.path.substr(0, uriEndPos + 1);
+        const lines = source.split('\n');
+        var count = 0;
+        for (var i = 0; i < lines.length; i++) {
+            if (lines[i].startsWith('#include')) {
+                const tokens = lines[i].split(/[ \t]/);
+                for (var j = 0; j < tokens.length; j++) {
+                    if (tokens[j].startsWith('"') && tokens[j].endsWith('"')) {
+                        count++;
+                        const uri = document.uri.with({ path: basePath + tokens[j].substr(1, tokens[j].length - 2) });
+                        vscode.workspace.openTextDocument(uri).then((includeDocument) => {
+                            const includeSource = includeDocument.getText();
+                            getMacroR(config, includeSource, includeDocument, documentList, resolve, reject);
+                        });
+                    }
+                }
+            }
+        }
+        if (0 == count) {
+            reject();
+        }
+        return;
+    }
+    const macroLine = source.substr(0, macroPosition).split('\n').length - 1;
+    const macroLineText = document.lineAt(macroLine).text.trim();
+    const bracketBegin = macroLineText.indexOf('(');
+    const bracketEnd = macroLineText.indexOf(')');
+    if (bracketBegin == -1 || bracketEnd == -1 || bracketEnd < bracketBegin) {
+        reject();
+        return;
+    }
+    const paramTexts = macroLineText.substr(bracketBegin + 1, bracketEnd - bracketBegin - 1).split(',');
+    const params = [];
+    for (var i = 0; i < paramTexts.length; i++) {
+        params.push(new vscode.ParameterInformation(paramTexts[i], "")); // todo: argument help
+    }
+    var label = config.name + macroLineText.substr(bracketBegin, bracketEnd - bracketBegin + 1);
+    const signatureHelp = new vscode.SignatureHelp();
+    signatureHelp.activeParameter = 0;
+    signatureHelp.activeSignature = 0;
+    signatureHelp.signatures = [
+        new vscode.SignatureInformation(label, "") // todo: function help
+    ];
+    signatureHelp.signatures[0].parameters = params;
+    signatureHelp.signatures[0].activeParameter = config.activeParam;
+    resolve(signatureHelp);
+}
+
+class VGSSignatureHelpProvider {
+    provideSignatureHelp(document, position, token) {
+        return new Promise((resolve, reject) => {
+            const line = document.lineAt(position.line);
+            const lineText = line.text.substr(0, position.character).trim();
+            const bracketBegin = lineText.indexOf('(');
+            if (-1 == bracketBegin) {
+                reject('no open parenthesis before cursor');
+                return;
+            }
+            if (lineText.substr(bracketBegin - 1, 1) == ' ') {
+                reject('not macro call');
+                return;
+            }
+            if (-1 != lineText.indexOf(')')) {
+                reject('close by bracket end');
+                return;
+            }
+            const activeParam = lineText.split(',').length - 1;
+            const name = lineText.substr(0, bracketBegin);
+            const regex = new RegExp('macro\\s+' + name, 'i');
+            const source = document.getText();
+            getMacroR({ name: name, activeParam: activeParam, regex: regex }, source, document, [], resolve, reject);
+        });
+    }
+}
+
 function activate(context) {
     context.subscriptions.push(vscode.languages.registerCompletionItemProvider(VGSASM_MODE, new VGSMethodCompletionItemProvider(), '.'));
     context.subscriptions.push(vscode.languages.registerDefinitionProvider(VGSASM_MODE, new VGSDefinitionProvider()));
+    context.subscriptions.push(vscode.languages.registerSignatureHelpProvider(VGSASM_MODE, new VGSSignatureHelpProvider(), '(', ','));
 }
 
 function deactivate() {
