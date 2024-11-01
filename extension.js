@@ -232,9 +232,17 @@ class VGSMethodCompletionItemProvider {
 
 class VGSDefinitionProvider {
     provideDefinition(document, position, token) {
-        const wordRange = document.getWordRangeAtPosition(position, /[a-zA-Z0-9_\\.\\"\\/]+/);
+        const wordRange = document.getWordRangeAtPosition(position, /[a-zA-Z0-9_\\\[\\\]\\.\\"\\/]+/);
         if (!wordRange) return Promise.reject('No word here.');
-        const currentWord = document.lineAt(position.line).text.slice(wordRange.start.character, wordRange.end.character);
+        var currentWord = document.lineAt(position.line).text.slice(wordRange.start.character, wordRange.end.character);
+        const arrayBegin = currentWord.indexOf('[');
+        const arrayEnd = currentWord.indexOf(']');
+        if (-1 != arrayBegin && -1 != arrayEnd && arrayBegin < arrayEnd) {
+            const l = currentWord.substr(0, arrayBegin);
+            const r = currentWord.substr(arrayEnd + 1);
+            currentWord = l + r;
+        }
+        console.log(currentWord);
         return getStructMemberLocation(currentWord, document);
     }
 }
