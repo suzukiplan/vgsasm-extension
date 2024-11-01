@@ -13,7 +13,7 @@ We plan to release a stable version (version 1.0.0) of this package at the same 
 - [x] Text Highlight
 - [x] Suggestion for `struct`
 - [x] Suggestion for `enum`
-- [ ] Suggestion for `#macro`
+- [x] Suggestion for `#macro`
 - [x] Contain `#include` files for the suggestions
 - [ ] Support code formatter
 
