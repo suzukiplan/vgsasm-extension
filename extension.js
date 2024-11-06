@@ -1,264 +1,205 @@
 const vscode = require('vscode');
 const VGSASM_MODE = { scheme: 'file', language: 'vgsasm' };
 
-function getStructMemberList(name, document) {
-    return new Promise((resolve) => {
-        const arrayBegin = name.indexOf('[');
-        const arrayEnd = name.indexOf(']');
-        if (-1 != arrayBegin && -1 != arrayEnd && arrayBegin < arrayEnd) {
-            const l = name.substr(0, arrayBegin);
-            const r = name.substr(arrayEnd + 1);
-            name = l + r;
-        }
-        if (!name.endsWith('.')) {
-            resolve();
-            return;
-        }
-        const token = name.split(/[ .,()]/);
-        if (token.length < 2) {
-            resolve();
-            return;
-        }
-        name = token[token.length - 2];
-        const regex = new RegExp('struct\\s+' + name, 'i');
-        let source = document.getText();
-        getMemberListR({ type: "struct", regex: regex, name: name }, source, document, [], (list) => {
-            if (list) {
-                resolve(list);
-            } else {
-                getEnumMemberList(name, document, resolve);
-            }
-        });
-    });
-}
-
-function getEnumMemberList(name, document, resolve) {
-    const regex = new RegExp('enum\\s+' + name, 'i');
-    let source = document.getText();
-    getMemberListR({ type: "enum", regex: regex, name: name }, source, document, [], resolve);
-}
-
-function getMemberListR(config, source, document, documentList, resolve) {
+async function search(regex, document, documentList) {
     for (var i = 0; i < documentList.length; i++) {
         if (documentList[i] == document.uri.path) {
-            resolve();
-            return;
+            return undefined; // 既に探索済み
         }
     }
     documentList.push(document.uri.path);
-    const structPosition = source.search(config.regex);
-    if (-1 == structPosition) {
+    const pos = document.getText().search(regex);
+    if (-1 == pos) {
+        // 見つからなかったので include しているファイルを探索
         const uriEndPos = document.uri.path.lastIndexOf('/');
-        if (-1 == uriEndPos) {
-            resolve();
-            return;
-        }
         const basePath = document.uri.path.substr(0, uriEndPos + 1);
-        const lines = source.split('\n');
-        var count = 0;
+        const lines = document.getText().split('\n');
         for (var i = 0; i < lines.length; i++) {
             if (lines[i].startsWith('#include')) {
                 const tokens = lines[i].split(/[ \t]/);
                 for (var j = 0; j < tokens.length; j++) {
                     if (tokens[j].startsWith('"') && tokens[j].endsWith('"')) {
-                        count++;
                         const uri = document.uri.with({ path: basePath + tokens[j].substr(1, tokens[j].length - 2) });
-                        vscode.workspace.openTextDocument(uri).then((includeDocument) => {
-                            const includeSource = includeDocument.getText();
-                            return getMemberListR(config, includeSource, includeDocument, documentList, resolve);
-                        });
+                        const includeDocument = await vscode.workspace.openTextDocument(uri);
+                        if (includeDocument) {
+                            const result = await search(regex, includeDocument, documentList);
+                            if (result) {
+                                return result;
+                            }
+                        }
                     }
                 }
             }
         }
-        if (0 == count) {
-            resolve();
+        return undefined; // include を含めて見つからなかった
+    } else {
+        return {
+            doc: document,
+            pos: pos
         }
-        return;
     }
-    const beginPosition = source.indexOf('{', structPosition);
-    if (-1 == beginPosition) {
-        resolve();
-        return;
+}
+
+function getScopeLines(searchResult, minimumToken) {
+    const source = searchResult.doc.getText();
+    const begin = source.indexOf('{', searchResult.pos);
+    if (-1 == begin) {
+        return undefined;
     }
-    const endPosition = source.indexOf('}', beginPosition);
-    if (-1 == endPosition) {
-        resolve();
-        return;
-    }
-    const structDefinition = source.substr(beginPosition, endPosition - beginPosition + 1);
-    const lines = structDefinition.split('\n');
-    const list = [];
-    for (var i = 1; i < lines.length - 1; i++) {
-        var line = lines[i].trim();
-        var detail = undefined;
+    const end = source.indexOf('}', begin);
+    const scopeLines = source.substr(begin + 1, end - begin - 1).split('\n');
+    var result = [];
+    for (var i = 0; i < scopeLines.length; i++) {
+        var line = scopeLines[i].trim();
+        var comment = undefined;
         var commentPos = line.indexOf(';');
-        if (-1 != commentPos) {
-            detail = line.substr(commentPos + 1).trim();
-        } else {
+        if (-1 == commentPos) {
             commentPos = line.indexOf('//');
             if (-1 != commentPos) {
-                detail = line.substr(commentPos + 2).trim();
+                comment = line.substr(commentPos + 2).trim();
+                line = line.substr(0, commentPos - 1).trim();
             }
+        } else {
+            comment = line.substr(commentPos + 1).trim();
+            line = line.substr(0, commentPos - 1).trim();
         }
-        if (-1 != commentPos) {
-            line = line.substr(0, commentPos);
-        }
-        const token = line.split(/[ \t]/);
-        if (3 <= token.length && config.type == "struct") {
-            list.push({ label: token[0], kind: vscode.CompletionItemKind.Field, detail: detail });
-        } else if (1 <= token.length && config.type == "enum") {
-            list.push({ label: token[0], kind: vscode.CompletionItemKind.Field, detail: detail });
+        const tokens = line.split(/[ \t]/);
+        if (minimumToken <= tokens.length) {
+            result.push({ tokens: tokens, comment: comment });
         }
     }
-    return resolve(new vscode.CompletionList(list, false));
+    return result;
 }
 
-function getStructMemberLocation(name, document) {
-    return new Promise((resolve, reject) => {
-        if (name.startsWith('"') && name.endsWith('"')) {
-            name = name.substr(1, name.length - 2);
-            const uriEndPos = document.uri.path.lastIndexOf('/');
-            if (-1 == uriEndPos) {
-                reject('No word definition.');
-                return;
-            }
-            const path = document.uri.path.substr(0, uriEndPos + 1) + name;
-            const uri = document.uri.with({ path: path });
-            vscode.workspace.openTextDocument(uri).then((doc) => {
-                resolve(new vscode.Location(doc.uri, new vscode.Position(0, 0)));
-            }, () => {
-                reject("File not found");
-            });
-
-        } else {
-            const token = name.split(/[ .,()]/);
-            name = token[0];
-            const field = token.length < 2 ? undefined : token[1];
-            const regex = new RegExp('struct\\s+' + name, 'i');
-            let source = document.getText();
-            getMemberLocationR({ type: "struct", regex: regex, name: name, field: field }, source, document, [], (loc) => {
-                if (loc) {
-                    resolve(loc);
-                } else {
-                    getEnumMemberLocation(name, field, document, (loc) => {
-                        if (loc) {
-                            resolve(loc);
-                        } else {
-                            getMacroLocation(name, document, (loc) => {
-                                if (loc) {
-                                    resolve(loc);
-                                } else {
-                                    reject();
-                                }
-                            });
-                        }
-                    });
-                }
-            });
+function getFieldLine(source, pos, field) {
+    if (!field) {
+        return -1;
+    }
+    const scopeEnd = source.indexOf('}', pos);
+    if (-1 != scopeEnd) {
+        const defSource = source.substr(pos, scopeEnd - pos);
+        const fieldPos = defSource.indexOf(field);
+        if (-1 != fieldPos) {
+            return defSource.substr(0, fieldPos).split('\n').length - 1;
         }
-    });
+    }
+    return -1;
 }
 
-function getEnumMemberLocation(name, field, document, resolve) {
+async function getStructMemberList(name, document) {
+    const arrayBegin = name.indexOf('[');
+    const arrayEnd = name.indexOf(']');
+    if (-1 != arrayBegin && -1 != arrayEnd && arrayBegin < arrayEnd) {
+        const l = name.substr(0, arrayBegin);
+        const r = name.substr(arrayEnd + 1);
+        name = l + r;
+    }
+    if (!name.endsWith('.')) {
+        return undefined;
+    }
+    const token = name.split(/[ .,()]/);
+    if (token.length < 2) {
+        return undefined;
+    }
+    name = token[token.length - 2];
+    const regex = new RegExp('struct\\s+' + name, 'i');
+    const searchResult = await search(regex, document, []);
+    if (!searchResult) {
+        return undefined;
+    }
+    const scope = getScopeLines(searchResult, 3);
+    var list = [];
+    for (var i = 0; i < scope.length; i++) {
+        list.push({ label: scope[i].tokens[0], kind: vscode.CompletionItemKind.Field, detail: scope[i].comment });
+    }
+    return new vscode.CompletionList(list, false);
+}
+
+async function getEnumMemberList(name, document) {
+    if (!name.endsWith('.')) {
+        return undefined;
+    }
+    name = name.substr(0, name.length - 1).trim();
+    console.log("search enum " + name);
     const regex = new RegExp('enum\\s+' + name, 'i');
-    let source = document.getText();
-    getMemberLocationR({ type: "enum", regex: regex, name: name, field: field }, source, document, [], (loc) => {
-        if (loc) {
-            resolve(loc);
-        } else {
-            resolve();;
-        }
-    });
+    const searchResult = await search(regex, document, []);
+    if (!searchResult) {
+        return undefined;
+    }
+    const scope = getScopeLines(searchResult, 1);
+    var list = [];
+    for (var i = 0; i < scope.length; i++) {
+        list.push({ label: scope[i].tokens[0], kind: vscode.CompletionItemKind.Field, detail: scope[i].comment });
+    }
+    return new vscode.CompletionList(list, false);
 }
 
-function getMacroLocation(name, document, resolve) {
-    const regex = new RegExp('macro\\s+' + name, 'i');
-    let source = document.getText();
-    getMemberLocationR({ type: "macro", regex: regex, name: name, field: undefined }, source, document, [], (loc) => {
-        if (loc) {
-            resolve(loc);
-        } else {
-            resolve();;
-        }
-    });
-}
-
-function getMemberLocationR(config, source, document, documentList, resolve) {
-    for (var i = 0; i < documentList.length; i++) {
-        if (documentList[i] == document.uri.path) {
-            resolve();
-            return;
-        }
+async function getLocation(regex, field, document) {
+    const searchResult = await search(regex, document, []);
+    if (!searchResult) {
+        return undefined;
     }
-    documentList.push(document.uri.path);
-    const structPosition = source.search(config.regex);
-    if (-1 == structPosition) {
-        const uriEndPos = document.uri.path.lastIndexOf('/');
-        if (-1 == uriEndPos) {
-            resolve();
-            return;
-        }
-        const basePath = document.uri.path.substr(0, uriEndPos + 1);
-        const lines = source.split('\n');
-        var count = 0;
-        for (var i = 0; i < lines.length; i++) {
-            if (lines[i].startsWith('#include')) {
-                const tokens = lines[i].split(/[ \t]/);
-                for (var j = 0; j < tokens.length; j++) {
-                    if (tokens[j].startsWith('"') && tokens[j].endsWith('"')) {
-                        count++;
-                        const uri = document.uri.with({ path: basePath + tokens[j].substr(1, tokens[j].length - 2) });
-                        vscode.workspace.openTextDocument(uri).then((includeDocument) => {
-                            const includeSource = includeDocument.getText();
-                            return getMemberLocationR(config, includeSource, includeDocument, documentList, resolve);
-                        });
-                    }
-                }
-            }
-        }
-        if (0 == count) {
-            resolve();
-        }
-        return;
-    }
-    const structLine = source.substr(0, structPosition).split('\n').length - 1;
-    if (!config.field) {
-        resolve(new vscode.Location(document.uri, new vscode.Position(structLine, 0)));
-        return;
-    }
-    const beginPosition = source.indexOf('{', structPosition);
-    if (-1 == beginPosition) {
-        resolve(new vscode.Location(document.uri, new vscode.Position(structLine, 0)));
-        return;
-    }
-    const endPosition = source.indexOf('}', beginPosition);
-    if (-1 == endPosition) {
-        resolve(new vscode.Location(document.uri, new vscode.Position(structLine, 0)));
-        return;
-    }
-    const structDefinition = source.substr(structPosition, endPosition - structPosition + 1);
-    const fieldPosition = structDefinition.indexOf(config.field);
-    if (-1 == fieldPosition) {
-        resolve(new vscode.Location(document.uri, new vscode.Position(structLine, 0)));
+    const source = searchResult.doc.getText();
+    const structLine = source.substr(0, searchResult.pos).split('\n').length - 1;
+    const fieldLine = getFieldLine(source, searchResult.pos, field);
+    if (-1 == fieldLine) {
+        return new vscode.Location(searchResult.doc.uri, new vscode.Position(structLine, 0));
     } else {
-        const fieldLine = structDefinition.substr(0, fieldPosition).split('\n').length - 1;
-        resolve(new vscode.Location(document.uri, new vscode.Position(structLine + fieldLine, 4)));
+        return new vscode.Location(searchResult.doc.uri, new vscode.Position(structLine + fieldLine, 0));
+    }
+}
+
+async function getStructMemberLocation(name, field, document) {
+    const regex = new RegExp('struct\\s+' + name, 'i');
+    return await getLocation(regex, field, document);
+}
+
+async function getEnumMemberLocation(name, field, document) {
+    const regex = new RegExp('enum\\s+' + name, 'i');
+    return await getLocation(regex, field, document);
+}
+
+async function getMacroLocation(name, document) {
+    const regex = new RegExp('macro\\s+' + name, 'i');
+    return await getLocation(regex, undefined, document);
+}
+
+async function getFileLocation(document, name) {
+    const uriEndPos = document.uri.path.lastIndexOf('/');
+    const basePath = document.uri.path.substr(0, uriEndPos + 1);
+    const uri = document.uri.with({ path: basePath + name });
+    const doc = await vscode.workspace.openTextDocument(uri);
+    if (doc) {
+        return new vscode.Location(doc.uri, new vscode.Position(0, 0));
     }
 }
 
 class VGSMethodCompletionItemProvider {
-    provideCompletionItems(document, position, token) {
-        const structName = document.lineAt(position).text.substr(0, position.character);
-        return getStructMemberList(structName, document);
+    async provideCompletionItems(document, position, token) {
+        const name = document.lineAt(position).text.substr(0, position.character);
+        const structList = await getStructMemberList(name, document);
+        if (structList) {
+            return structList;
+        }
+        const enumList = await getEnumMemberList(name, document);
+        if (enumList) {
+            return enumList;
+        }
     }
 }
 
 class VGSDefinitionProvider {
-    provideDefinition(document, position, token) {
+    async provideDefinition(document, position, token) {
         const wordRange = document.getWordRangeAtPosition(position, /[a-zA-Z0-9_\\\[\\\]\\.\\"\\/]+/);
-        if (!wordRange) return Promise.reject('No word here.');
+        if (!wordRange) return;
         var currentWord = document.lineAt(position.line).text.slice(wordRange.start.character, wordRange.end.character);
+        console.log(currentWord);
+        const dqBegin = currentWord.indexOf('"');
+        if (-1 != dqBegin) {
+            const dqEnd = currentWord.indexOf('"', dqBegin + 1);
+            const path = currentWord.substr(dqBegin + 1, dqEnd - dqBegin - 1);
+            return await getFileLocation(document, path);
+        }
         const arrayBegin = currentWord.indexOf('[');
         const arrayEnd = currentWord.indexOf(']');
         if (-1 != arrayBegin && -1 != arrayEnd && arrayBegin < arrayEnd) {
@@ -266,98 +207,68 @@ class VGSDefinitionProvider {
             const r = currentWord.substr(arrayEnd + 1);
             currentWord = l + r;
         }
-        console.log(currentWord);
-        return getStructMemberLocation(currentWord, document);
-    }
-}
-
-function getMacroR(config, source, document, documentList, resolve, reject) {
-    for (var i = 0; i < documentList.length; i++) {
-        if (documentList[i] == document.uri.path) {
-            reject();
-            return;
+        const dot = currentWord.indexOf('.');
+        var field = undefined;
+        if (-1 != dot) {
+            field = currentWord.substr(dot + 1);
+            currentWord = currentWord.substr(0, dot);
         }
+        const sloc = await getStructMemberLocation(currentWord, field, document);
+        if (sloc) { return sloc; }
+        const eloc = await getEnumMemberLocation(currentWord, field, document);
+        if (eloc) { return eloc; }
+        const mloc = await getMacroLocation(currentWord, document);
+        if (mloc) { return mloc; }
+        return undefined;
     }
-    documentList.push(document.uri.path);
-    const macroPosition = source.search(config.regex);
-    if (-1 == macroPosition) {
-        const uriEndPos = document.uri.path.lastIndexOf('/');
-        if (-1 == uriEndPos) {
-            reject();
-            return;
-        }
-        const basePath = document.uri.path.substr(0, uriEndPos + 1);
-        const lines = source.split('\n');
-        var count = 0;
-        for (var i = 0; i < lines.length; i++) {
-            if (lines[i].startsWith('#include')) {
-                const tokens = lines[i].split(/[ \t]/);
-                for (var j = 0; j < tokens.length; j++) {
-                    if (tokens[j].startsWith('"') && tokens[j].endsWith('"')) {
-                        count++;
-                        const uri = document.uri.with({ path: basePath + tokens[j].substr(1, tokens[j].length - 2) });
-                        vscode.workspace.openTextDocument(uri).then((includeDocument) => {
-                            const includeSource = includeDocument.getText();
-                            getMacroR(config, includeSource, includeDocument, documentList, resolve, reject);
-                        });
-                    }
-                }
-            }
-        }
-        if (0 == count) {
-            reject();
-        }
-        return;
-    }
-    const macroLine = source.substr(0, macroPosition).split('\n').length - 1;
-    const macroLineText = document.lineAt(macroLine).text.trim();
-    const bracketBegin = macroLineText.indexOf('(');
-    const bracketEnd = macroLineText.indexOf(')');
-    if (bracketBegin == -1 || bracketEnd == -1 || bracketEnd < bracketBegin) {
-        reject();
-        return;
-    }
-    const paramTexts = macroLineText.substr(bracketBegin + 1, bracketEnd - bracketBegin - 1).split(',');
-    const params = [];
-    for (var i = 0; i < paramTexts.length; i++) {
-        params.push(new vscode.ParameterInformation(paramTexts[i], "")); // todo: argument help
-    }
-    var label = config.name + macroLineText.substr(bracketBegin, bracketEnd - bracketBegin + 1);
-    const signatureHelp = new vscode.SignatureHelp();
-    signatureHelp.activeParameter = 0;
-    signatureHelp.activeSignature = 0;
-    signatureHelp.signatures = [
-        new vscode.SignatureInformation(label, "") // todo: function help
-    ];
-    signatureHelp.signatures[0].parameters = params;
-    signatureHelp.signatures[0].activeParameter = config.activeParam;
-    resolve(signatureHelp);
 }
 
 class VGSSignatureHelpProvider {
-    provideSignatureHelp(document, position, token) {
-        return new Promise((resolve, reject) => {
-            const line = document.lineAt(position.line);
-            const lineText = line.text.substr(0, position.character).trim();
-            const bracketBegin = lineText.indexOf('(');
-            if (-1 == bracketBegin) {
-                reject('no open parenthesis before cursor');
-                return;
-            }
-            if (lineText.substr(bracketBegin - 1, 1) == ' ') {
-                reject('not macro call');
-                return;
-            }
-            if (-1 != lineText.indexOf(')')) {
-                reject('close by bracket end');
-                return;
-            }
-            const activeParam = lineText.split(',').length - 1;
-            const name = lineText.substr(0, bracketBegin);
-            const regex = new RegExp('macro\\s+' + name, 'i');
-            const source = document.getText();
-            getMacroR({ name: name, activeParam: activeParam, regex: regex }, source, document, [], resolve, reject);
-        });
+    async provideSignatureHelp(document, position, token) {
+        const line = document.lineAt(position.line);
+        const lineText = line.text.substr(0, position.character).trim();
+        var bracketBegin = lineText.indexOf('(');
+        if (-1 == bracketBegin) {
+            return;
+        }
+        if (lineText.substr(bracketBegin - 1, 1) == ' ') {
+            return;
+        }
+        if (-1 != lineText.indexOf(')')) {
+            return;
+        }
+        const activeParam = lineText.split(',').length - 1;
+        const name = lineText.substr(0, bracketBegin);
+        const regex = new RegExp('macro\\s+' + name, 'i');
+        console.log("search macro " + name);
+        const searchResult = await search(regex, document, []);
+        if (!searchResult) {
+            return;
+        }
+        const source = searchResult.doc.getText();
+        const macroPosition = searchResult.pos;
+        const macroLine = source.substr(0, macroPosition).split('\n').length - 1;
+        const macroLineText = searchResult.doc.lineAt(macroLine).text.trim();
+        bracketBegin = macroLineText.indexOf('(');
+        const bracketEnd = macroLineText.indexOf(')');
+        if (bracketBegin == -1 || bracketEnd == -1 || bracketEnd < bracketBegin) {
+            return;
+        }
+        const paramTexts = macroLineText.substr(bracketBegin + 1, bracketEnd - bracketBegin - 1).split(',');
+        const params = [];
+        for (var i = 0; i < paramTexts.length; i++) {
+            params.push(new vscode.ParameterInformation(paramTexts[i], ""));
+        }
+        var label = name + macroLineText.substr(bracketBegin, bracketEnd - bracketBegin + 1);
+        const signatureHelp = new vscode.SignatureHelp();
+        signatureHelp.activeParameter = 0;
+        signatureHelp.activeSignature = 0;
+        signatureHelp.signatures = [
+            new vscode.SignatureInformation(label, "")
+        ];
+        signatureHelp.signatures[0].parameters = params;
+        signatureHelp.signatures[0].activeParameter = activeParam;
+        return signatureHelp;
     }
 }
 
