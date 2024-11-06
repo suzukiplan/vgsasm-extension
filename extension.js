@@ -176,7 +176,9 @@ async function getFileLocation(document, name) {
 
 class VGSMethodCompletionItemProvider {
     async provideCompletionItems(document, position, token) {
-        const name = document.lineAt(position).text.substr(0, position.character);
+        const wordRange = document.getWordRangeAtPosition(position, /[a-zA-Z0-9_\\\[\\\]\\.\\"\\/]+/);
+        if (!wordRange) return;
+        var name = document.lineAt(position.line).text.slice(wordRange.start.character, wordRange.end.character);
         const structList = await getStructMemberList(name, document);
         if (structList) {
             return structList;
