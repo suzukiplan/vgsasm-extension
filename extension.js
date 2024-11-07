@@ -16,7 +16,7 @@ async function search(regex, document, documentList) {
         const lines = document.getText().split('\n');
         for (var i = 0; i < lines.length; i++) {
             if (lines[i].startsWith('#include')) {
-                const tokens = lines[i].split(/[ \t]/);
+                const tokens = lines[i].split(/[ \t]+/);
                 for (var j = 0; j < tokens.length; j++) {
                     if (tokens[j].startsWith('"') && tokens[j].endsWith('"')) {
                         const uri = document.uri.with({ path: basePath + tokens[j].substr(1, tokens[j].length - 2) });
@@ -63,7 +63,7 @@ function getScopeLines(searchResult, minimumToken) {
             comment = line.substr(commentPos + 1).trim();
             line = line.substr(0, commentPos - 1).trim();
         }
-        const tokens = line.split(/[ \t]/);
+        const tokens = line.split(/[ \t]+/);
         if (minimumToken <= tokens.length) {
             result.push({ tokens: tokens, comment: comment });
         }
@@ -101,13 +101,34 @@ async function getStructMemberList(name, document) {
     if (token.length < 2) {
         return undefined;
     }
-    name = token[token.length - 2];
-    const regex = new RegExp('struct\\s+' + name, 'i');
-    const searchResult = await search(regex, document, []);
-    if (!searchResult) {
-        return undefined;
+    token.splice(token.length - 1, 1);
+    name = token[0];
+    var scope = [];
+    for (var i = 0; i < token.length; i++) {
+        console.log("search struct: ", name);
+        const regex = new RegExp('struct\\s+' + name, 'i');
+        const searchResult = await search(regex, document, []);
+        if (!searchResult) {
+            return undefined;
+        }
+        scope = getScopeLines(searchResult, 3);
+        name = undefined;
+        if (i + 1 < token.length) {
+            for (var j = 0; j < scope.length; j++) {
+                if (scope[j].tokens[0] == token[i + 1]) {
+                    name = scope[j].tokens[1];
+                    break;
+                }
+            }
+        } else {
+            break;
+        }
+        if (!name || name.toUpperCase() == "DS.B" || name.toUpperCase() == "DS.W") {
+            return undefined;
+        }
     }
-    const scope = getScopeLines(searchResult, 3);
+
+
     var list = [];
     for (var i = 0; i < scope.length; i++) {
         list.push({ label: scope[i].tokens[0], kind: vscode.CompletionItemKind.Field, detail: scope[i].comment });
