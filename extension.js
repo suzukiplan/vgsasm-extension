@@ -233,6 +233,14 @@ class VGSMethodCompletionItemProvider {
         const wordRange = document.getWordRangeAtPosition(position, /[a-zA-Z0-9_\\\[\\\]\\.\\"\\/]+/);
         if (!wordRange) return;
         var name = document.lineAt(position.line).text.slice(wordRange.start.character, wordRange.end.character);
+        if (-1 == name.indexOf(']')) {
+            // '[' があるが ']' が無い状態の場合、 '[' の右側の単語で検索（配列内の要素としてサジェストしようとした時の対応
+            // なお、オートコンプリートで [] を自動入力する対応をした場合はこの方式だと問題が出てくる筈（その自動入力は個人的に少し煩わしいので対応しない予定）
+            const b = name.indexOf('[');
+            if (b != -1) {
+                name = name.substr(b + 1);
+            }
+        }
         const structList = await getStructMemberList(name, document);
         if (structList) {
             return structList;
