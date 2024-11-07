@@ -180,7 +180,6 @@ function searchAtLabel(name, document, baseLine) {
         if (isLabelLine(line)) {
             break;
         } else if (line.startsWith(name)) {
-            console.log(name + " found at line " + startLine);
             return new vscode.Location(document.uri, new vscode.Position(startLine, 0));
         }
     }
@@ -189,7 +188,6 @@ function searchAtLabel(name, document, baseLine) {
         if (isLabelLine(line)) {
             break;
         } else if (line.startsWith(name)) {
-            console.log(name + " found at line " + endLine);
             return new vscode.Location(document.uri, new vscode.Position(endLine, 0));
         }
     }
@@ -201,7 +199,6 @@ async function getLabelLocation(name, document, baseLine) {
         return searchAtLabel(name, document, baseLine);
     } else if (-1 != name.indexOf('@')) {
         var token = name.split('@');
-        console.log("search @" + token[0] + " in ." + token[1]);
         var nl = await search(new RegExp('\\.' + token[1], 'i'), document, []);
         if (!nl) {
             nl = await search(new RegExp(token[1] + ':', 'i'), document, []);
