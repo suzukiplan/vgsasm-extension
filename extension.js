@@ -164,6 +164,60 @@ async function getMacroLocation(name, document) {
     return await getLocation(regex, undefined, document);
 }
 
+function isLabelLine(lineText) {
+    if (lineText.startsWith('.')) {
+        return true;
+    }
+    if (-1 != lineText.search(/^\\w+:/)) {
+        return true;
+    }
+    return false;
+}
+
+function searchAtLabel(name, document, baseLine) {
+    for (var startLine = baseLine - 1; 0 <= startLine; startLine--) {
+        const line = document.lineAt(startLine).text;
+        if (isLabelLine(line)) {
+            break;
+        } else if (line.startsWith(name)) {
+            return new vscode.Location(document.uri, new vscode.Position(startLine, 0));
+        }
+    }
+    for (var endLine = baseLine + 1; endLine < document.lineCount; endLine++) {
+        const line = document.lineAt(endLine).text;
+        if (isLabelLine(line)) {
+            break;
+        } else if (line.startsWith(name)) {
+            return new vscode.Location(document.uri, new vscode.Position(endLine, 0));
+        }
+    }
+    return undefined;
+}
+
+async function getLabelLocation(name, document, baseLine) {
+    if (name.startsWith('@')) {
+        return searchAtLabel(name, document, baseLine);
+    } else if (-1 != name.indexOf('@')) {
+        var token = name.split('@');
+        var nl = await search(new RegExp('\\.' + token[1], 'i'), document, []);
+        if (!nl) {
+            nl = await search(new RegExp(token[1] + ':', 'i'), document, []);
+            if (!nl) {
+                return undefined
+            }
+        }
+        return searchAtLabel('@' + token[0], nl.doc, nl.doc.getText().substr(0, nl.pos).split('\n').length);
+    } else {
+        const dotRegex = new RegExp("\\." + name, 'i');
+        const dotLabel = await getLocation(dotRegex, undefined, document);
+        if (dotLabel) { return dotLabel; }
+        const colRegex = new RegExp(name + ':', 'i');
+        const colLabel = await getLocation(colRegex, undefined, document);
+        if (colLabel) { return colLabel; }
+        return undefined;
+    }
+}
+
 async function getFileLocation(document, name) {
     const uriEndPos = document.uri.path.lastIndexOf('/');
     const basePath = document.uri.path.substr(0, uriEndPos + 1);
@@ -176,7 +230,17 @@ async function getFileLocation(document, name) {
 
 class VGSMethodCompletionItemProvider {
     async provideCompletionItems(document, position, token) {
-        const name = document.lineAt(position).text.substr(0, position.character);
+        const wordRange = document.getWordRangeAtPosition(position, /[a-zA-Z0-9_\\\[\\\]\\.\\"\\/]+/);
+        if (!wordRange) return;
+        var name = document.lineAt(position.line).text.slice(wordRange.start.character, wordRange.end.character);
+        if (-1 == name.indexOf(']')) {
+            // '[' があるが ']' が無い状態の場合、 '[' の右側の単語で検索（配列内の要素としてサジェストしようとした時の対応
+            // なお、オートコンプリートで [] を自動入力する対応をした場合はこの方式だと問題が出てくる筈（その自動入力は個人的に少し煩わしいので対応しない予定）
+            const b = name.indexOf('[');
+            if (b != -1) {
+                name = name.substr(b + 1);
+            }
+        }
         const structList = await getStructMemberList(name, document);
         if (structList) {
             return structList;
@@ -190,7 +254,7 @@ class VGSMethodCompletionItemProvider {
 
 class VGSDefinitionProvider {
     async provideDefinition(document, position, token) {
-        const wordRange = document.getWordRangeAtPosition(position, /[a-zA-Z0-9_\\\[\\\]\\.\\"\\/]+/);
+        const wordRange = document.getWordRangeAtPosition(position, /[@a-zA-Z0-9_\\\[\\\]\\.\\"\\/]+/);
         if (!wordRange) return;
         var currentWord = document.lineAt(position.line).text.slice(wordRange.start.character, wordRange.end.character);
         console.log(currentWord);
@@ -219,6 +283,8 @@ class VGSDefinitionProvider {
         if (eloc) { return eloc; }
         const mloc = await getMacroLocation(currentWord, document);
         if (mloc) { return mloc; }
+        const lloc = await getLabelLocation(currentWord, document, position.line);
+        if (lloc) { return lloc; }
         return undefined;
     }
 }
