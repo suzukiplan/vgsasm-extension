@@ -164,6 +164,63 @@ async function getMacroLocation(name, document) {
     return await getLocation(regex, undefined, document);
 }
 
+function isLabelLine(lineText) {
+    if (lineText.startsWith('.')) {
+        return true;
+    }
+    if (-1 != lineText.search(/^\\w+:/)) {
+        return true;
+    }
+    return false;
+}
+
+function searchAtLabel(name, document, baseLine) {
+    for (var startLine = baseLine - 1; 0 <= startLine; startLine--) {
+        const line = document.lineAt(startLine).text;
+        if (isLabelLine(line)) {
+            break;
+        } else if (line.startsWith(name)) {
+            console.log(name + " found at line " + startLine);
+            return new vscode.Location(document.uri, new vscode.Position(startLine, 0));
+        }
+    }
+    for (var endLine = baseLine + 1; endLine < document.lineCount; endLine++) {
+        const line = document.lineAt(endLine).text;
+        if (isLabelLine(line)) {
+            break;
+        } else if (line.startsWith(name)) {
+            console.log(name + " found at line " + endLine);
+            return new vscode.Location(document.uri, new vscode.Position(endLine, 0));
+        }
+    }
+    return undefined;
+}
+
+async function getLabelLocation(name, document, baseLine) {
+    if (name.startsWith('@')) {
+        return searchAtLabel(name, document, baseLine);
+    } else if (-1 != name.indexOf('@')) {
+        var token = name.split('@');
+        console.log("search @" + token[0] + " in ." + token[1]);
+        var nl = await search(new RegExp('\\.' + token[1], 'i'), document, []);
+        if (!nl) {
+            nl = await search(new RegExp(token[1] + ':', 'i'), document, []);
+            if (!nl) {
+                return undefined
+            }
+        }
+        return searchAtLabel('@' + token[0], nl.doc, nl.doc.getText().substr(0, nl.pos).split('\n').length);
+    } else {
+        const dotRegex = new RegExp("\\." + name, 'i');
+        const dotLabel = await getLocation(dotRegex, undefined, document);
+        if (dotLabel) { return dotLabel; }
+        const colRegex = new RegExp(name + ':', 'i');
+        const colLabel = await getLocation(colRegex, undefined, document);
+        if (colLabel) { return colLabel; }
+        return undefined;
+    }
+}
+
 async function getFileLocation(document, name) {
     const uriEndPos = document.uri.path.lastIndexOf('/');
     const basePath = document.uri.path.substr(0, uriEndPos + 1);
@@ -192,7 +249,7 @@ class VGSMethodCompletionItemProvider {
 
 class VGSDefinitionProvider {
     async provideDefinition(document, position, token) {
-        const wordRange = document.getWordRangeAtPosition(position, /[a-zA-Z0-9_\\\[\\\]\\.\\"\\/]+/);
+        const wordRange = document.getWordRangeAtPosition(position, /[@a-zA-Z0-9_\\\[\\\]\\.\\"\\/]+/);
         if (!wordRange) return;
         var currentWord = document.lineAt(position.line).text.slice(wordRange.start.character, wordRange.end.character);
         console.log(currentWord);
@@ -221,6 +278,8 @@ class VGSDefinitionProvider {
         if (eloc) { return eloc; }
         const mloc = await getMacroLocation(currentWord, document);
         if (mloc) { return mloc; }
+        const lloc = await getLabelLocation(currentWord, document, position.line);
+        if (lloc) { return lloc; }
         return undefined;
     }
 }
