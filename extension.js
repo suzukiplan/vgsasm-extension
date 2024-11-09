@@ -106,7 +106,7 @@ async function getStructMemberList(name, document) {
     var scope = [];
     for (var i = 0; i < token.length; i++) {
         console.log("search struct: ", name);
-        const regex = new RegExp('struct\\s+' + name, 'i');
+        const regex = new RegExp('struct\\s+\\b' + name + '\\b', 'i');
         const searchResult = await search(regex, document, []);
         if (!searchResult) {
             return undefined;
@@ -142,7 +142,7 @@ async function getEnumMemberList(name, document) {
     }
     name = name.substr(0, name.length - 1).trim();
     console.log("search enum " + name);
-    const regex = new RegExp('enum\\s+' + name, 'i');
+    const regex = new RegExp('enum\\s+\\b' + name + '\\b', 'i');
     const searchResult = await search(regex, document, []);
     if (!searchResult) {
         return undefined;
@@ -171,17 +171,17 @@ async function getLocation(regex, field, document) {
 }
 
 async function getStructMemberLocation(name, field, document) {
-    const regex = new RegExp('struct\\s+' + name, 'i');
+    const regex = new RegExp('struct\\s+\\b' + name + '\\b', 'i');
     return await getLocation(regex, field, document);
 }
 
 async function getEnumMemberLocation(name, field, document) {
-    const regex = new RegExp('enum\\s+' + name, 'i');
+    const regex = new RegExp('enum\\s+\\b' + name + '\\b', 'i');
     return await getLocation(regex, field, document);
 }
 
 async function getMacroLocation(name, document) {
-    const regex = new RegExp('macro\\s+' + name, 'i');
+    const regex = new RegExp('macro\\s+\\b' + name + '\\b', 'i');
     return await getLocation(regex, undefined, document);
 }
 
@@ -220,19 +220,19 @@ async function getLabelLocation(name, document, baseLine) {
         return searchAtLabel(name, document, baseLine);
     } else if (-1 != name.indexOf('@')) {
         var token = name.split('@');
-        var nl = await search(new RegExp('\\.' + token[1], 'i'), document, []);
+        var nl = await search(new RegExp('\\.' + token[1] + '\\b', 'i'), document, []);
         if (!nl) {
-            nl = await search(new RegExp(token[1] + ':', 'i'), document, []);
+            nl = await search(new RegExp('\\b' + token[1] + ':', 'i'), document, []);
             if (!nl) {
                 return undefined
             }
         }
         return searchAtLabel('@' + token[0], nl.doc, nl.doc.getText().substr(0, nl.pos).split('\n').length);
     } else {
-        const dotRegex = new RegExp("\\." + name, 'i');
+        const dotRegex = new RegExp("\\." + name + '\\b', 'i');
         const dotLabel = await getLocation(dotRegex, undefined, document);
         if (dotLabel) { return dotLabel; }
-        const colRegex = new RegExp(name + ':', 'i');
+        const colRegex = new RegExp('\\b' + name + ':', 'i');
         const colLabel = await getLocation(colRegex, undefined, document);
         if (colLabel) { return colLabel; }
         return undefined;
@@ -326,7 +326,7 @@ class VGSSignatureHelpProvider {
         }
         const activeParam = lineText.split(',').length - 1;
         const name = lineText.substr(0, bracketBegin);
-        const regex = new RegExp('macro\\s+' + name, 'i');
+        const regex = new RegExp('macro\\s+\\b' + name + '\\b', 'i');
         console.log("search macro " + name);
         const searchResult = await search(regex, document, []);
         if (!searchResult) {
